@@ -1,0 +1,111 @@
+services:
+  # API Gateway (Nginx)
+  api-gateway:
+    image: nginx:alpine # [WAJIB]
+    container_name: api-gateway # [WAJIB]
+    depends_on:
+      - auth-service # [WAJIB]
+    # - acad-service # Dependency tambahan untuk layanan baru
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro # [WAJIB]
+    ports:
+      # - "8080:80" # [WAJIB]
+      - "8081:80" # [OPSIONAL 2] Mengubah exposed port menjadi 8081
+    networks:
+      - uas-network
+
+  # Auth Service (Node.js)
+  auth-service:
+    build: ./auth-service
+    container_name: auth-service # [WAJIB]
+    depends_on:
+      - auth-db # [WAJIB]
+    environment:
+      - NODE_ENV=development # [WAJIB]
+      - PORT=3001 # [WAJIB]
+      - MONGO_URI=mongodb://auth-db:27017/auth # [WAJIB]
+      - JWT_SECRET=36099197cb470ee497eae40e05657c98 # [WAJIB] Hasil Generate JWT SECRET
+    ports:
+      - "3001:3001" # [WAJIB]
+    volumes:
+      - ./auth-service:/app # [WAJIB]
+      - /app/node_modules # [WAJIB]
+    networks:
+      - uas-network # [WAJIB]
+    # [OPSIONAL 3] Membatasi sumber daya CPU: 0.5 virtual core dan RAM: 512 MegaBytes
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
+  # Auth Database (MongoDB)
+  auth-db:
+    image: mongo:6.0 # [WAJIB]
+    container_name: auth-db # [WAJIB]
+    volumes:
+      - auth-data:/data/db # [WAJIB]
+    networks:
+      - uas-network # [WAJIB]
+    restart: always # [OPSIONAL 4] Melakukan auto-restart jika berhenti
+    ports:
+      - "27017:27017"
+
+  # Acad Service (Python/FastAPI) - New Service
+  acad-service:
+    build: ./acad-service # Dockerfile & main.py berada di folder ini
+    container_name: acad-service
+    depends_on:
+      - acad-db # Bergantung pada database akademiknya
+    environment:
+      - NODE_ENV=development
+      - PORT=3002
+      # VARIABEL KONEKSI POSTGRESQL
+      #START
+      - DB_HOST=acad-db # Hostname sesuai nama container DB
+      - DB_PORT=5432
+      - DB_NAME=acad
+      - DB_USER=acaduser
+      - DB_PASSWORD=acadpass
+      #END
+    networks:
+      - uas-network
+    # Port 3002 diexpose internal, tidak perlu diekspos ke host jika ada API Gateway
+    # ports:
+    #  - "3002:3002"
+    volumes:
+      # Mount folder lokal ke dalam kontainer untuk pengembangan
+      - ./acad-service:/app # Mapping code
+      - /app/__pycache__ # Hindari node_modules
+
+  # Acad DB (PostgreSQL) - New Service
+  acad-db:
+    image: postgres:15-alpine # Menggunakan image PostgreSQL
+    container_name: acad-db
+    environment:
+      - POSTGRES_DB=acad
+      - POSTGRES_USER=acaduser
+      - POSTGRES_PASSWORD=acadpass
+    volumes:
+      - acad-data:/var/lib/postgresql/data # Volume untuk data permanen
+      - ./acad-service/db_kelas.sql:/docker-entrypoint-initdb.d/init.sql:ro # Inisialisasi database
+    networks:
+      - uas-network
+    restart: always # Opsi Opsional tapi bagus untuk database
+    # ports:
+    #   - "5432:5432" # Tidak perlu diexpose jika hanya diakses internal
+
+networks:
+  # microservices-network: # [WAJIB]
+  uas-network: # [WAJIB] Nama network custom
+    driver: bridge
+    ipam:
+      config:
+        # - subnet: 172.20.0.0/16 # [WAJIB]
+        - subnet: 172.16.0.0/28 # [OPSIONAL 1] Internal Networking dengan Subnet Khusus
+
+volumes:
+  auth-data: # [WAJIB]
+  acad-data: # Volume baru untuk DB Acad
+  # product-data: # Dihapus, tidak relevan dengan auth/score
+  # order-data: # Dihapus, tidak relevan dengan auth/score
